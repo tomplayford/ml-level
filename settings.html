@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings - Well Level</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; }
+  .container { max-width: 480px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 1.2em; color: #888; margin-bottom: 24px; text-align: center; }
+  .card { background: #16213e; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 0.95em; color: #e94560; margin-bottom: 14px; }
+  label { display: block; font-size: 0.85em; color: #888; margin-bottom: 4px; margin-top: 12px; }
+  input { width: 100%; padding: 10px; background: #0f3460; border: 1px solid #1a2744;
+    border-radius: 6px; color: #e0e0e0; font-size: 0.95em; }
+  input:focus { outline: none; border-color: #e94560; }
+  .row { display: flex; gap: 12px; }
+  .row > div { flex: 1; }
+  .actions { display: flex; gap: 10px; margin-top: 20px; }
+  button { flex: 1; padding: 12px; border: none; border-radius: 8px; font-size: 0.95em;
+    cursor: pointer; font-weight: 600; }
+  .btn-save { background: #e94560; color: #fff; }
+  .btn-back { background: #0f3460; color: #aaa; }
+  .msg { text-align: center; font-size: 0.9em; margin-top: 12px; min-height: 1.2em; }
+  .msg.ok { color: #4caf50; }
+  .msg.err { color: #e94560; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Settings</h1>
+  <form id="form">
+    <div class="card">
+      <h2>MQTT (Home Assistant)</h2>
+      <label for="MQTT_BROKER">Broker IP</label>
+      <input id="MQTT_BROKER" name="MQTT_BROKER" placeholder="e.g. 192.168.1.100">
+      <div class="row">
+        <div>
+          <label for="MQTT_PORT">Port</label>
+          <input id="MQTT_PORT" name="MQTT_PORT" type="number">
+        </div>
+        <div>
+          <label for="MQTT_PUBLISH_INTERVAL_S">Publish (s)</label>
+          <input id="MQTT_PUBLISH_INTERVAL_S" name="MQTT_PUBLISH_INTERVAL_S" type="number">
+        </div>
+      </div>
+      <label for="MQTT_USER">Username</label>
+      <input id="MQTT_USER" name="MQTT_USER" autocomplete="off">
+      <label for="MQTT_PASSWORD">Password</label>
+      <input id="MQTT_PASSWORD" name="MQTT_PASSWORD" type="password" autocomplete="off">
+      <label for="MQTT_TOPIC_PREFIX">Discovery prefix</label>
+      <input id="MQTT_TOPIC_PREFIX" name="MQTT_TOPIC_PREFIX">
+      <label for="MQTT_DEVICE_ID">Device ID</label>
+      <input id="MQTT_DEVICE_ID" name="MQTT_DEVICE_ID">
+    </div>
+    <div class="card">
+      <h2>Well Dimensions (mm)</h2>
+      <div class="row">
+        <div>
+          <label for="WELL_DEPTH_MM">Depth (sensor to bottom)</label>
+          <input id="WELL_DEPTH_MM" name="WELL_DEPTH_MM" type="number">
+        </div>
+        <div>
+          <label for="WELL_DIAMETER_MM">Diameter</label>
+          <input id="WELL_DIAMETER_MM" name="WELL_DIAMETER_MM" type="number">
+        </div>
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn-back" onclick="location.href='/'">Back</button>
+      <button type="submit" class="btn-save">Save &amp; Reconnect</button>
+    </div>
+    <div class="msg" id="msg"></div>
+  </form>
+</div>
+<script>
+var msg = document.getElementById("msg");
+
+async function loadSettings() {
+  try {
+    var r = await fetch("/api/settings");
+    var d = await r.json();
+    for (var key in d) {
+      var el = document.getElementById(key);
+      if (el) el.value = d[key] !== null ? d[key] : "";
+    }
+  } catch(e) {
+    msg.textContent = "Failed to load settings";
+    msg.className = "msg err";
+  }
+}
+
+document.getElementById("form").addEventListener("submit", async function(e) {
+  e.preventDefault();
+  msg.textContent = "Saving...";
+  msg.className = "msg";
+  var data = {};
+  var inputs = document.querySelectorAll("input");
+  for (var i = 0; i < inputs.length; i++) {
+    data[inputs[i].name] = inputs[i].value;
+  }
+  try {
+    var r = await fetch("/api/settings", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(data)
+    });
+    var d = await r.json();
+    if (d.ok) {
+      msg.textContent = "Saved! MQTT reconnecting...";
+      msg.className = "msg ok";
+    } else {
+      msg.textContent = "Save failed";
+      msg.className = "msg err";
+    }
+  } catch(e) {
+    msg.textContent = "Error: " + e;
+    msg.className = "msg err";
+  }
+});
+
+loadSettings();
+</script>
+</body>
+</html>

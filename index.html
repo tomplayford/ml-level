@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Well Water Level</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; }
+  .container { max-width: 600px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 1.2em; color: #888; margin-bottom: 24px; text-align: center; }
+  .card { background: #16213e; border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+  .reading { font-size: 3em; font-weight: 700; color: #e94560; text-align: center; }
+  .unit { font-size: 0.4em; color: #888; }
+  .sub { font-size: 1.1em; color: #aaa; text-align: center; margin-top: 8px; }
+  .bar-bg { background: #0f3460; border-radius: 8px; height: 32px; margin-top: 16px; overflow: hidden; }
+  .bar-fill { background: linear-gradient(90deg, #e94560, #f5a623); height: 100%; border-radius: 8px;
+              transition: width 1s; }
+  .meta { display: flex; justify-content: space-between; font-size: 0.85em; color: #666; margin-top: 8px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .dot.ok { background: #4caf50; } .dot.err { background: #e94560; }
+  .status { font-size: 0.9em; text-align: center; margin-top: 12px; }
+  .chart-card { background: #16213e; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .chart-title { font-size: 1em; color: #888; }
+  .range-btns { display: flex; gap: 4px; flex-wrap: wrap; }
+  .range-btns button { background: #0f3460; color: #aaa; border: none; border-radius: 6px;
+    padding: 6px 10px; font-size: 0.8em; cursor: pointer; }
+  .range-btns button.active { background: #e94560; color: #fff; }
+  canvas { width: 100%; height: 200px; display: block; }
+  .stats { display: flex; justify-content: space-around; margin-top: 12px; font-size: 0.85em; }
+  .stat { text-align: center; }
+  .stat-val { font-size: 1.3em; font-weight: 600; }
+  .stat-val.mn { color: #4caf50; }
+  .stat-val.mx { color: #e94560; }
+  .stat-val.av { color: #f5a623; }
+  .stat-lbl { color: #666; font-size: 0.85em; }
+  .hdr { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  .hdr h1 { margin: 0; }
+  .gear { color: #555; text-decoration: none; font-size: 1.4em; }
+  .gear:hover { color: #e94560; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="hdr"><h1>Well Water Level</h1><a href="/settings" class="gear">&#9881;</a></div>
+  <div class="card">
+    <div class="reading"><span id="lvl-val">--</span><span class="unit"> mm</span></div>
+    <div class="sub" id="litres"></div>
+    <div class="bar-bg"><div class="bar-fill" id="bar" style="width:0%"></div></div>
+    <div class="meta"><span id="pct"></span><span></span></div>
+  </div>
+  <div class="chart-card">
+    <div class="chart-header">
+      <span class="chart-title">History</span>
+      <div class="range-btns" id="ranges">
+        <button data-s="300">5m</button>
+        <button data-s="900">15m</button>
+        <button data-s="3600" class="active">1h</button>
+        <button data-s="21600">6h</button>
+        <button data-s="86400">24h</button>
+      </div>
+    </div>
+    <canvas id="chart"></canvas>
+    <div class="stats">
+      <div class="stat"><div class="stat-val mn" id="mn">--</div><div class="stat-lbl">Min</div></div>
+      <div class="stat"><div class="stat-val av" id="av">--</div><div class="stat-lbl">Avg</div></div>
+      <div class="stat"><div class="stat-val mx" id="mx">--</div><div class="stat-lbl">Max</div></div>
+    </div>
+  </div>
+  <div class="status"><span class="dot" id="dot"></span><span id="status">connecting...</span></div>
+</div>
+<script>
+var $ = function(id) { return document.getElementById(id); };
+var rangeSec = 3600;
+
+async function updateLive() {
+  try {
+    var r = await fetch("/api");
+    var d = await r.json();
+    if (d.water_level_mm !== null) {
+      $("lvl-val").textContent = d.water_level_mm.toFixed(1);
+      $("litres").textContent = d.litres !== null ? d.litres.toFixed(1) + " litres" : "";
+      $("bar").style.width = (d.pct !== null ? d.pct.toFixed(1) : 0) + "%";
+      $("pct").textContent = d.pct !== null ? d.pct.toFixed(1) + "%" : "";
+    } else {
+      $("lvl-val").textContent = "--";
+      $("litres").textContent = "no echo";
+      $("bar").style.width = "0%";
+      $("pct").textContent = "";
+    }
+    $("dot").className = "dot " + (d.status === "OK" ? "ok" : "err");
+    $("status").textContent = d.status || "unknown";
+  } catch(e) { $("status").textContent = "fetch error"; }
+}
+
+function drawChart(pts) {
+  var canvas = $("chart");
+  var dpr = window.devicePixelRatio || 1;
+  var rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  var ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  var W = rect.width, H = rect.height;
+  var pad = {t: 10, r: 10, b: 28, l: 48};
+  var cw = W - pad.l - pad.r, ch = H - pad.t - pad.b;
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (pts.length < 2) {
+    ctx.fillStyle = "#666";
+    ctx.font = "13px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Waiting for data\u2026", W / 2, H / 2);
+    $("mn").textContent = "--"; $("av").textContent = "--"; $("mx").textContent = "--";
+    return;
+  }
+
+  var vals = [], times = [];
+  for (var i = 0; i < pts.length; i++) { times.push(pts[i][0]); vals.push(pts[i][1]); }
+  var mn = vals[0], mx = vals[0], sum = 0;
+  for (var i = 0; i < vals.length; i++) {
+    if (vals[i] < mn) mn = vals[i];
+    if (vals[i] > mx) mx = vals[i];
+    sum += vals[i];
+  }
+  var avg = sum / vals.length;
+  var tMin = times[0], tMax = times[times.length - 1];
+  var vPad = Math.max((mx - mn) * 0.1, 1);
+  var vMin = mn - vPad, vMax = mx + vPad;
+
+  $("mn").textContent = mn.toFixed(1) + " mm";
+  $("av").textContent = avg.toFixed(1) + " mm";
+  $("mx").textContent = mx.toFixed(1) + " mm";
+
+  function x(t) { return pad.l + (tMax > tMin ? ((t - tMin) / (tMax - tMin)) * cw : cw / 2); }
+  function y(v) { return pad.t + ch - ((v - vMin) / (vMax - vMin)) * ch; }
+
+  // grid
+  ctx.strokeStyle = "#1a2744"; ctx.lineWidth = 1;
+  for (var i = 0; i <= 4; i++) {
+    var gy = pad.t + (ch / 4) * i;
+    ctx.beginPath(); ctx.moveTo(pad.l, gy); ctx.lineTo(pad.l + cw, gy); ctx.stroke();
+  }
+
+  // y labels
+  ctx.fillStyle = "#555"; ctx.font = "11px sans-serif"; ctx.textAlign = "right";
+  for (var i = 0; i <= 4; i++) {
+    var v = vMax - ((vMax - vMin) / 4) * i;
+    ctx.fillText(v.toFixed(0), pad.l - 6, pad.t + (ch / 4) * i + 4);
+  }
+
+  // x labels
+  ctx.textAlign = "center";
+  var span = tMax - tMin;
+  for (var i = 0; i <= 4; i++) {
+    var t = tMin + (span / 4) * i;
+    var ago = tMax - t;
+    var lbl;
+    if (i === 4) lbl = "now";
+    else if (ago < 60) lbl = "-" + Math.round(ago) + "s";
+    else if (ago < 3600) lbl = "-" + Math.round(ago / 60) + "m";
+    else lbl = "-" + (ago / 3600).toFixed(1) + "h";
+    ctx.fillText(lbl, x(t), H - 4);
+  }
+
+  // min line (dashed green)
+  ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(76,175,80,0.4)";
+  ctx.beginPath(); ctx.moveTo(pad.l, y(mn)); ctx.lineTo(pad.l + cw, y(mn)); ctx.stroke();
+  // max line (dashed red)
+  ctx.strokeStyle = "rgba(233,69,96,0.4)";
+  ctx.beginPath(); ctx.moveTo(pad.l, y(mx)); ctx.lineTo(pad.l + cw, y(mx)); ctx.stroke();
+  // avg line (dashed orange)
+  ctx.strokeStyle = "rgba(245,166,35,0.25)";
+  ctx.beginPath(); ctx.moveTo(pad.l, y(avg)); ctx.lineTo(pad.l + cw, y(avg)); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // data line
+  ctx.strokeStyle = "#e94560"; ctx.lineWidth = 2; ctx.lineJoin = "round";
+  ctx.beginPath();
+  for (var i = 0; i < pts.length; i++) {
+    i === 0 ? ctx.moveTo(x(pts[i][0]), y(pts[i][1])) : ctx.lineTo(x(pts[i][0]), y(pts[i][1]));
+  }
+  ctx.stroke();
+
+  // gradient fill under line
+  var grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + ch);
+  grad.addColorStop(0, "rgba(233,69,96,0.25)");
+  grad.addColorStop(1, "rgba(233,69,96,0)");
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  for (var i = 0; i < pts.length; i++) {
+    i === 0 ? ctx.moveTo(x(pts[i][0]), y(pts[i][1])) : ctx.lineTo(x(pts[i][0]), y(pts[i][1]));
+  }
+  ctx.lineTo(x(pts[pts.length-1][0]), pad.t + ch);
+  ctx.lineTo(x(pts[0][0]), pad.t + ch);
+  ctx.closePath();
+  ctx.fill();
+}
+
+async function updateChart() {
+  try {
+    var r = await fetch("/api/history?range=" + rangeSec);
+    var pts = await r.json();
+    drawChart(pts);
+  } catch(e) {}
+}
+
+// range button handlers
+var btns = document.querySelectorAll("#ranges button");
+for (var i = 0; i < btns.length; i++) {
+  btns[i].addEventListener("click", function() {
+    for (var j = 0; j < btns.length; j++) btns[j].classList.remove("active");
+    this.classList.add("active");
+    rangeSec = parseInt(this.getAttribute("data-s"));
+    updateChart();
+  });
+}
+
+window.addEventListener("resize", updateChart);
+
+// stagger requests so the Pico handles them sequentially
+updateLive();
+setTimeout(updateChart, 1500);
+setInterval(updateLive, 3000);
+setInterval(function(){ setTimeout(updateChart, 1500); }, 10000);
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+# MicroPython runtime
+__pycache__/
+settings.json
+
+# Credentials
+config.py
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# oh-my-claude
+.omc/
